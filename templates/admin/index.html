@@ -1,0 +1,101 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}{% endblock %}
+{% block title %}Дашборд | {{ site_title|default:"Admin" }}{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+  .dash { padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; }
+  .dash-bar { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; justify-content: space-between; }
+  .dash-bar form, .dash-bar .actions { display: flex; gap: .5rem; align-items: center; }
+  .dash select, .dash .btn { border: 1px solid rgba(128,128,128,.4); border-radius: .5rem; padding: .4rem .8rem; background: transparent; color: inherit; }
+  .dash .btn.primary { background: #2563eb; color: #fff; border-color: #2563eb; text-decoration: none; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1rem; }
+  .card { border: 1px solid rgba(128,128,128,.28); border-radius: .75rem; padding: 1rem; }
+  .card h3 { margin: 0 0 .6rem; font-size: .8rem; opacity: .7; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+  .kpi-value { font-size: 1.5rem; font-weight: 700; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 1rem; }
+  .chart-box { position: relative; height: 300px; }
+  table.corr { width: 100%; border-collapse: collapse; }
+  table.corr td, table.corr th { padding: .35rem .5rem; border-bottom: 1px solid rgba(128,128,128,.2); text-align: left; }
+  .hint { font-size: .8rem; opacity: .65; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dash">
+  <div class="dash-bar">
+    <form method="get">
+      <label for="year">Год:</label>
+      <select name="year" id="year" onchange="this.form.submit()">
+        <option value="">Все годы</option>
+        {% for y in years %}<option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>{{ y }}</option>{% endfor %}
+      </select>
+    </form>
+    <div class="actions">
+      <a class="btn primary" href="{% url 'admin:index' %}sales/salestransaction/export-report/{% if selected_year %}?year={{ selected_year }}{% endif %}">
+        ⬇ Сводный отчёт (xlsx)
+      </a>
+      <a class="btn" href="{% url 'admin:index' %}sales/salestransaction/">Таблица продаж</a>
+    </div>
+  </div>
+
+  <div class="kpis">
+    {% for k in kpis %}<div class="card"><h3>{{ k.title }}</h3><div class="kpi-value">{{ k.value }}</div></div>{% endfor %}
+  </div>
+
+  <div class="grid2">
+    <div class="card"><h3>Выручка по месяцам</h3><div class="chart-box"><canvas id="c-monthly"></canvas></div></div>
+    <div class="card"><h3>Выручка по годам</h3><div class="chart-box"><canvas id="c-yearly"></canvas></div></div>
+    <div class="card"><h3>Сезонность: средняя выручка по месяцам года</h3><div class="chart-box"><canvas id="c-season"></canvas></div></div>
+    <div class="card"><h3>Топ категорий по выручке</h3><div class="chart-box"><canvas id="c-category"></canvas></div></div>
+    <div class="card"><h3>Выручка по регионам</h3><div class="chart-box"><canvas id="c-region"></canvas></div></div>
+    <div class="card"><h3>Выручка по каналам продаж</h3><div class="chart-box"><canvas id="c-channel"></canvas></div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card"><h3>Выручка и макропоказатели (индекс, первый месяц = 100)</h3><div class="chart-box"><canvas id="c-macro"></canvas></div></div>
+    <div class="card">
+      <h3>Корреляция выручки с макропоказателями (Пирсон, по месяцам)</h3>
+      <table class="corr">
+        <tr><th>Показатель</th><th>r</th></tr>
+        {% for c in correlations %}<tr><td>{{ c.indicator }}</td><td>{{ c.value|default_if_none:"—" }}</td></tr>
+        {% empty %}<tr><td colspan="2" class="hint">Макроданные не загружены (команда load_macro).</td></tr>{% endfor %}
+      </table>
+      <p class="hint">Корреляция не означает причинность: тренд и сезонность могут давать ложную связь.</p>
+    </div>
+  </div>
+</div>
+
+{{ charts|json_script:"charts-data" }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  if (typeof Chart === "undefined") { return; }
+  const data = JSON.parse(document.getElementById("charts-data").textContent);
+  Chart.defaults.color = getComputedStyle(document.body).color;
+  Chart.defaults.borderColor = "rgba(128,128,128,.2)";
+  Chart.defaults.maintainAspectRatio = false;
+  const palette = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#9333ea", "#0891b2", "#db2777", "#65a30d", "#ea580c", "#4b5563"];
+  const money = (v) => v.toLocaleString("ru-RU", {maximumFractionDigits: 0});
+  const single = (d, label) => ({labels: d.labels, datasets: [{label, data: d.values, backgroundColor: palette[0], borderColor: palette[0]}]});
+  const build = (id, type, chartData, options) => {
+    const el = document.getElementById(id);
+    if (el && chartData.labels && chartData.labels.length) { new Chart(el, {type, data: chartData, options: options || {}}); }
+  };
+  const noLegend = {plugins: {legend: {display: false}}};
+  build("c-monthly", "line", single(data.monthly, "Выручка, $"), {...noLegend, elements: {point: {radius: 0}}});
+  build("c-yearly", "bar", single(data.yearly, "Выручка, $"), noLegend);
+  build("c-season", "bar", single(data.seasonality, "Выручка, $"), noLegend);
+  build("c-category", "bar", single(data.category, "Выручка, $"), {...noLegend, indexAxis: "y"});
+  const pie = (d) => ({labels: d.labels, datasets: [{data: d.values, backgroundColor: palette}]});
+  build("c-region", "doughnut", pie(data.region), {plugins: {legend: {position: "right"}}});
+  build("c-channel", "doughnut", pie(data.channel), {plugins: {legend: {position: "right"}}});
+  const macro = data.macro;
+  macro.datasets = macro.datasets.map((d, i) => ({...d, borderColor: palette[i % palette.length], backgroundColor: palette[i % palette.length], pointRadius: 0, tension: .2}));
+  build("c-macro", "line", macro, {interaction: {mode: "index", intersect: false}});
+})();
+</script>
+{% endblock %}
