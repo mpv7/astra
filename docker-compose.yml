@@ -53,7 +53,7 @@ services:
   app-image:
     <<: *app
     profiles: ["image"]
-    image: ${APP_IMAGE:-ghcr.io/OWNER/astra-procurement:latest}
+    image: ${APP_IMAGE:-ghcr.io/mpv7/astra-procurement:latest}
 
 volumes:
   pgdata:
