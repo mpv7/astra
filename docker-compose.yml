@@ -1,0 +1,59 @@
+# Два режима запуска приложения (профили compose):
+#   сборка из исходников:  docker compose --profile build up --build
+#   готовый образ:         docker compose --profile image up
+x-app: &app
+  environment:
+    DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-in-production}
+    DJANGO_DEBUG: ${DJANGO_DEBUG:-0}
+    DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,0.0.0.0}
+    DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:8000}
+    POSTGRES_DB: ${POSTGRES_DB:-procurement}
+    POSTGRES_USER: ${POSTGRES_USER:-procurement}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-procurement}
+    POSTGRES_HOST: db
+    DJANGO_SUPERUSER_USERNAME: ${DJANGO_SUPERUSER_USERNAME:-admin}
+    DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-admin12345}
+    LOAD_DEMO_DATA: ${LOAD_DEMO_DATA:-1}
+    DEMO_ROWS: ${DEMO_ROWS:-30000}
+    DATA_DIR: /data
+    SALES_FILE: ${SALES_FILE:-}
+    MACRO_FILE: ${MACRO_FILE:-}
+    MACRO_SHEET: ${MACRO_SHEET:-}
+  volumes:
+    - ./data:/data:ro
+  ports:
+    - "${APP_PORT:-8000}:8000"
+  depends_on:
+    db:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-procurement}
+      POSTGRES_USER: ${POSTGRES_USER:-procurement}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-procurement}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app-build:
+    <<: *app
+    profiles: ["build"]
+    build:
+      context: .
+
+  app-image:
+    <<: *app
+    profiles: ["image"]
+    image: ${APP_IMAGE:-ghcr.io/OWNER/astra-procurement:latest}
+
+volumes:
+  pgdata:
